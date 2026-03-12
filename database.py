@@ -62,7 +62,6 @@ def init_db(db_path):
         CREATE TABLE IF NOT EXISTS leaderboard (
             user_id INTEGER PRIMARY KEY,
             total_value REAL NOT NULL,
-            rank INTEGER,
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id)
         )

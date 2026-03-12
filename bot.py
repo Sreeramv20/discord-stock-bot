@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands
-import sqlite3
 import asyncio
 from config import TOKEN, DATABASE_PATH
 from database import init_db
@@ -38,6 +37,21 @@ class StockTradingBot(commands.Bot):
         
     async def on_ready(self):
         print(f'{self.user} has logged in!')
+        
+        # Start market price updates
+        asyncio.create_task(self.update_market_prices())
+
+    async def update_market_prices(self):
+        """Periodically update stock prices"""
+        while True:
+            try:
+                await self.market.update_all_prices()
+                print("Stock prices updated")
+            except Exception as e:
+                print(f"Error updating stock prices: {e}")
+            
+            # Update every 30 seconds
+            await asyncio.sleep(30)
 
 # Create and run the bot
 if __name__ == '__main__':
