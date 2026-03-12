@@ -85,3 +85,23 @@ class Leaderboard:
         portfolio_value = sum(item['quantity'] * item['current_price'] for item in portfolio)
         
         return balance + portfolio_value
+    
+    async def get_top_traders(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get top traders ranked by net worth"""
+        # Get all users and their net worth
+        users = database.get_all_users(config.DB_PATH)
+        
+        user_worths = []
+        for user in users:
+            worth = await self.get_user_net_worth(user['id'])
+            user_worths.append({
+                'user_id': user['id'],
+                'username': user['username'],
+                'worth': worth
+            })
+            
+        # Sort by worth (descending)
+        user_worths.sort(key=lambda x: x['worth'], reverse=True)
+        
+        # Return top traders
+        return user_worths[:limit]
