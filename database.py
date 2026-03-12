@@ -16,7 +16,7 @@ def init_db(db_path):
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
                 username TEXT NOT NULL,
-                balance REAL DEFAULT 10000.0,
+                balance REAL DEFAULT 50000.0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -106,7 +106,7 @@ def init_db(db_path):
                 user_id INTEGER NOT NULL,
                 strategy TEXT NOT NULL,
                 risk_level TEXT NOT NULL,
-                balance REAL DEFAULT 10000.0,
+                balance REAL DEFAULT 50000.0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
@@ -357,3 +357,48 @@ def get_active_market_events(db_path):
         cursor = conn.cursor()
         cursor.execute('SELECT * FROM market_events WHERE is_active = 1')
         return [dict(row) for row in cursor.fetchall()]
+
+def get_all_users(db_path):
+    """Get all users from database"""
+    with get_db_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, username, balance FROM users')
+        return [dict(row) for row in cursor.fetchall()]
+
+def update_leaderboard_entry(user_id, total_worth, rank, db_path):
+    """Update leaderboard entry"""
+    with get_db_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO leaderboard (user_id, total_worth, rank, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (user_id, total_worth, rank))
+        conn.commit()
+
+def get_leaderboard_data(db_path):
+    """Get leaderboard data"""
+    with get_db_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT u.id as user_id, u.username, l.total_worth, l.rank
+            FROM leaderboard l
+            JOIN users u ON l.user_id = u.id
+            ORDER BY l.rank
+        ''')
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_user_rank(user_id, db_path):
+    """Get user's rank from leaderboard"""
+    with get_db_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT rank FROM leaderboard WHERE user_id = ?', (user_id,))
+        result = cursor.fetchone()
+        return result['rank'] if result else None
+
+def get_stock_info(symbol, db_path):
+    """Get stock information from database"""
+    with get_db_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM stocks WHERE symbol = ?', (symbol,))
+        result = cursor.fetchone()
+        return dict(result) if result else None

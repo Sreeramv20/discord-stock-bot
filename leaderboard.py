@@ -11,10 +11,7 @@ class Leaderboard:
     async def update_leaderboard(self):
         """Update the leaderboard with current user rankings"""
         # Get all users and their net worth
-        # This would be implemented with actual database queries
-        
-        # For now, we'll simulate it
-        users = database.get_all_users(config.DB_PATH)  # This method needs to be added to database.py
+        users = database.get_all_users(config.DB_PATH)
         
         user_worths = []
         for user in users:
@@ -78,6 +75,13 @@ class Leaderboard:
     
     async def get_user_net_worth(self, user_id: int) -> float:
         """Get a user's net worth for leaderboard"""
-        # This would be implemented with actual portfolio and balance calculations
-        # For now, we'll simulate it
-        return 10000.0 + (hash(str(user_id)) % 5000)
+        # Get user's balance
+        balance = database.get_user_balance(user_id, config.DB_PATH)
+        if balance is None:
+            balance = 0.0
+            
+        # Get portfolio value
+        portfolio = database.get_user_portfolio(user_id, config.DB_PATH)
+        portfolio_value = sum(item['quantity'] * item['current_price'] for item in portfolio)
+        
+        return balance + portfolio_value
