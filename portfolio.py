@@ -83,3 +83,91 @@ class PortfolioSystem:
         except Exception as e:
             logger.error(f"Error getting user net worth: {e}")
             raise
+            
+    async def add_stock_to_portfolio(self, user_id, symbol, quantity, price):
+        """Add a stock to user's portfolio or update existing position"""
+        try:
+            conn = get_db_connection(self.db_path)
+            cursor = conn.cursor()
+            
+            # Check if user already has this stock
+            cursor.execute('''
+                SELECT quantity, avg_buy_price FROM portfolios 
+                WHERE user_id = ? AND stock_symbol = ?
+            ''', (user_id, symbol))
+            
+            existing_position = cursor.fetchone()
+            
+            if existing_position:
+                # Update existing position
+                old_quantity = existing_position['quantity']
+                old_avg_price = existing_position['avg_buy_price']
+                
+                new_quantity = old_quantity + quantity
+                new_avg_price = ((old_quantity * old_avg_price) + (quantity * price)) / new_quantity
+                
+                cursor.execute('''
+                    UPDATE portfolios 
+                    SET quantity = ?, avg_buy_price = ?
+                    WHERE user_id = ? AND stock_symbol = ?
+                ''', (new_quantity, new_avg_price, user_id, symbol))
+            else:
+                # Add new position
+                cursor.execute('''
+                    INSERT INTO portfolios (user_id, stock_symbol, quantity, avg_buy_price)
+                    VALUES (?, ?, ?, ?)
+                ''', (user_id, symbol, quantity, price))
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error adding stock to portfolio: {e}")
+            raise
+        finally:
+            conn.close()
+            
+    async def remove_stock_from_portfolio(self, user_id, symbol, quantity):
+        """Remove a stock from user's portfolio"""
+        try:
+            conn = get_db_connection(self.db_path)
+            cursor = conn.cursor()
+            
+            # Check if user has this stock
+            cursor.execute('''
+                SELECT quantity FROM portfolios 
+                WHERE user_id = ? AND stock_symbol = ?
+            ''', (user_id, symbol))
+            
+            existing_position = cursor.fetchone()
+            
+            if not existing_position:
+                return False
+                
+            current_quantity = existing_position['quantity']
+            
+            if quantity > current_quantity:
+                return False  # Trying to sell more than owned
+                
+            new_quantity = current_quantity - quantity
+            
+            if new_quantity == 0:
+                # Remove the entire position
+                cursor.execute('''
+                    DELETE FROM portfolios 
+                    WHERE user_id = ? AND stock_symbol = ?
+                ''', (user_id, symbol))
+            else:
+                # Update remaining quantity
+                cursor.execute('''
+                    UPDATE portfolios 
+                    SET quantity = ?
+                    WHERE user_id = ? AND stock_symbol = ?
+                ''', (new_quantity, user_id, symbol))
+            
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error removing stock from portfolio: {e}")
+            raise
+        finally:
+            conn.close()
