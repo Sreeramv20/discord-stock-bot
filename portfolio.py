@@ -84,6 +84,43 @@ class PortfolioSystem:
             logger.error(f"Error getting user net worth: {e}")
             raise
             
+    async def get_user_performance_metrics(self, user_id):
+        """Get a user's performance metrics"""
+        try:
+            conn = get_db_connection(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT total_profit, total_trades, wins, losses, roi
+                FROM performance_metrics 
+                WHERE user_id = ?
+            ''', (user_id,))
+            
+            result = cursor.fetchone()
+            
+            if not result:
+                # Return default values if no metrics exist
+                return {
+                    'total_profit': 0.0,
+                    'total_trades': 0,
+                    'wins': 0,
+                    'losses': 0,
+                    'roi': 0.0
+                }
+                
+            return {
+                'total_profit': result['total_profit'],
+                'total_trades': result['total_trades'],
+                'wins': result['wins'],
+                'losses': result['losses'],
+                'roi': result['roi']
+            }
+        except Exception as e:
+            logger.error(f"Error getting user performance metrics: {e}")
+            raise
+        finally:
+            conn.close()
+            
     async def add_stock_to_portfolio(self, user_id, symbol, quantity, price):
         """Add a stock to user's portfolio or update existing position"""
         try:

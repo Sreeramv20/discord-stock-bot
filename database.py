@@ -83,6 +83,20 @@ def init_db(db_path):
             )
         ''')
         
+        # Create performance metrics table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS performance_metrics (
+                user_id INTEGER PRIMARY KEY,
+                total_profit REAL DEFAULT 0.0,
+                total_trades INTEGER DEFAULT 0,
+                wins INTEGER DEFAULT 0,
+                losses INTEGER DEFAULT 0,
+                roi REAL DEFAULT 0.0,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+        
         conn.commit()
         logger.info("Database initialized successfully")
     except Exception as e:

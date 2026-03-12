@@ -123,6 +123,36 @@ class TradingEngine:
                 UPDATE users SET balance = balance + ? WHERE id = ?
             ''', (total_value, user_id))
             
+            # Get the original purchase price for profit calculation
+            cursor.execute('''
+                SELECT avg_buy_price FROM portfolios 
+                WHERE user_id = ? AND stock_symbol = ?
+            ''', (user_id, symbol))
+            
+            purchase_info = cursor.fetchone()
+            if purchase_info:
+                avg_buy_price = purchase_info[0]
+                profit = (price - avg_buy_price) * quantity
+                
+                # Update performance metrics
+                cursor.execute('''
+                    INSERT OR IGNORE INTO performance_metrics (user_id) VALUES (?)
+                ''', (user_id,))
+                
+                # Update performance metrics with profit/loss
+                if profit > 0:
+                    cursor.execute('''
+                        UPDATE performance_metrics 
+                        SET total_profit = total_profit + ?, wins = wins + 1, total_trades = total_trades + 1, roi = roi + ?
+                        WHERE user_id = ?
+                    ''', (profit, (profit / (avg_buy_price * quantity)) * 100, user_id))
+                else:
+                    cursor.execute('''
+                        UPDATE performance_metrics 
+                        SET total_profit = total_profit + ?, losses = losses + 1, total_trades = total_trades + 1, roi = roi + ?
+                        WHERE user_id = ?
+                    ''', (profit, (profit / (avg_buy_price * quantity)) * 100, user_id))
+            
             # Update portfolio
             new_quantity = owned_quantity - quantity
             

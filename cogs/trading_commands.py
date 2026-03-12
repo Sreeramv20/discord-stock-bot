@@ -108,6 +108,69 @@ class TradingCommands(commands.Cog):
         finally:
             if 'conn' in locals():
                 conn.close()
+                
+    @commands.slash_command(name="stats", description="View your trading statistics")
+    async def stats(self, ctx):
+        """View user's trading statistics"""
+        try:
+            # Get performance metrics
+            metrics = await self.portfolio_system.get_user_performance_metrics(ctx.user.id)
+            
+            # Calculate win rate
+            win_rate = 0.0
+            if metrics['total_trades'] > 0:
+                win_rate = (metrics['wins'] / metrics['total_trades']) * 100
+            
+            # Create embed with stats
+            embed = discord.Embed(
+                title=f"{ctx.user.display_name}'s Trading Stats",
+                color=discord.Color.purple()
+            )
+            
+            embed.add_field(
+                name="Total Profit/Loss",
+                value=f"${metrics['total_profit']:.2f}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Total Trades",
+                value=str(metrics['total_trades']),
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Wins",
+                value=str(metrics['wins']),
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Losses",
+                value=str(metrics['losses']),
+                inline=True
+            )
+            
+            embed.add_field(
+                name="Win Rate",
+                value=f"{win_rate:.1f}%",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="ROI",
+                value=f"{metrics['roi']:.2f}%",
+                inline=True
+            )
+            
+            await ctx.respond(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error getting user stats: {e}")
+            await ctx.respond("Error retrieving trading statistics.")
+        finally:
+            if 'conn' in locals():
+                conn.close()
 
 def setup(bot):
     bot.add_cog(TradingCommands(bot))
