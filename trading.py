@@ -91,7 +91,11 @@ class TradingEngine:
         """Get information about a specific stock"""
         # This would be implemented with actual market data lookup
         # For now, we'll simulate it
-        return {
+        import market
+        market_instance = market.Market()
+        
+        # Get base stock info
+        stock_info = {
             'symbol': symbol,
             'name': f'{symbol} Company',
             'current_price': 100.0 + (hash(symbol) % 100),
@@ -99,6 +103,12 @@ class TradingEngine:
             'volume': 1000000,
             'last_updated': time.time()
         }
+        
+        # Apply event multipliers to current price
+        multiplier = await market_instance.get_price_multiplier(symbol)
+        stock_info['current_price'] *= multiplier
+        
+        return stock_info
     
     async def get_user_transactions(self, user_id: int) -> List[Dict[str, Any]]:
         """Get user's transaction history"""

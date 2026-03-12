@@ -4,10 +4,12 @@ from typing import Optional, Dict, List
 import config
 import database
 import yfinance as yf
+import random
 
 class Market:
     def __init__(self):
         self.cache = {}
+        self.active_events = {}  # {event_name: {expiry_time: float}}
         
     async def fetch_stock_data(self, symbol: str) -> Optional[Dict]:
         """Fetch stock data from external API"""
@@ -86,6 +88,18 @@ class Market:
         
         return stocks_dict
     
+    async def get_price_multiplier(self, symbol: str) -> float:
+        """Get the current price multiplier for a stock based on active events"""
+        # Check if any events are affecting this stock
+        multiplier = 1.0
+        
+        # Apply event multipliers (if any)
+        for event_name, event_data in self.active_events.items():
+            if 'affected_stocks' in event_data and symbol in event_data['affected_stocks']:
+                multiplier *= event_data['multiplier']
+                
+        return multiplier
+    
     async def update_stock_price(self, symbol: str) -> Optional[float]:
         """Update a single stock's price"""
         # In a real implementation, this would fetch from an API
@@ -96,6 +110,10 @@ class Market:
         import random
         fluctuation = random.uniform(-5, 5)
         new_price = current_price + fluctuation
+        
+        # Apply event multipliers
+        multiplier = await self.get_price_multiplier(symbol)
+        new_price *= multiplier
         
         database.update_stock_price(symbol, new_price, config.DB_PATH)
         return new_price
@@ -110,11 +128,71 @@ class Market:
         """Start periodic market updates"""
         while True:
             try:
+                # Check for expired events
+                current_time = time.time()
+                expired_events = []
+                for event_name, event_data in self.active_events.items():
+                    if current_time > event_data['expiry_time']:
+                        expired_events.append(event_name)
+                
+                # Remove expired events
+                for event_name in expired_events:
+                    del self.active_events[event_name]
+                    print(f"Event {event_name} has ended")
+                
+                # Occasionally trigger a new random event
+                if random.random() < 0.1:  # 10% chance per update cycle
+                    await self.trigger_random_event()
+                
                 await self.update_all_prices()
                 await asyncio.sleep(config.MARKET_UPDATE_INTERVAL)
             except Exception as e:
                 print(f"Error updating market prices: {e}")
                 await asyncio.sleep(60)  # Wait a minute before retrying
+    
+    async def trigger_random_event(self):
+        """Trigger a random market event"""
+        events = [
+            {
+                'name': 'tech_crash',
+                'description': 'Tech sector crash! Prices dropping rapidly.',
+                'multiplier': 0.7,  # 30% reduction
+                'duration': 120,  # 2 minutes
+                'affected_stocks': ['AAPL', 'MSFT', 'GOOGL', 'TSLA']
+            },
+            {
+                'name': 'energy_rally',
+                'description': 'Energy sector rally! Prices soaring.',
+                'multiplier': 1.5,  # 50% increase
+                'duration': 180,  # 3 minutes
+                'affected_stocks': ['XOM', 'CVX', 'RDS-A', 'BP']
+            },
+            {
+                'name': 'market_boom',
+                'description': 'Market boom! All stocks rising.',
+                'multiplier': 1.3,  # 30% increase
+                'duration': 150,  # 2.5 minutes
+                'affected_stocks': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
+            },
+            {
+                'name': 'economic_uncertainty',
+                'description': 'Economic uncertainty! Market volatility increasing.',
+                'multiplier': 1.2,  # 20% increase
+                'duration': 200,  # 3.3 minutes
+                'affected_stocks': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
+            }
+        ]
+        
+        # Select a random event
+        event = random.choice(events)
+        
+        # Set expiry time
+        event['expiry_time'] = time.time() + event['duration']
+        
+        # Add to active events
+        self.active_events[event['name']] = event
+        
+        print(f"Market Event Triggered: {event['name']} - {event['description']}")
     
     async def initialize_stocks(self):
         """Initialize default stocks in the database"""
