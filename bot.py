@@ -1,12 +1,17 @@
 import discord
 from discord.ext import commands
 import asyncio
+import logging
 from config import TOKEN, DATABASE_PATH
 from database import init_db
 from market import Market
 from trading import TradingEngine
 from portfolio import PortfolioSystem
 from leaderboard import Leaderboard
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class StockTradingBot(commands.Bot):
     def __init__(self):
@@ -33,13 +38,17 @@ class StockTradingBot(commands.Bot):
         await self.market.initialize_stocks()
         
         # Load cogs
-        await self.load_extension('cogs.market_commands')
-        await self.load_extension('cogs.trading_commands')
-        await self.load_extension('cogs.portfolio_commands')
-        await self.load_extension('cogs.leaderboard_commands')
+        try:
+            await self.load_extension('cogs.market_commands')
+            await self.load_extension('cogs.trading_commands')
+            await self.load_extension('cogs.portfolio_commands')
+            await self.load_extension('cogs.leaderboard_commands')
+            logger.info("Successfully loaded all cogs")
+        except Exception as e:
+            logger.error(f"Failed to load cogs: {e}")
         
     async def on_ready(self):
-        print(f'{self.user} has logged in!')
+        logger.info(f'{self.user} has logged in!')
         
         # Start market price updates
         asyncio.create_task(self.update_market_prices())
@@ -49,9 +58,9 @@ class StockTradingBot(commands.Bot):
         while True:
             try:
                 await self.market.update_all_prices()
-                print("Stock prices updated")
+                logger.info("Stock prices updated")
             except Exception as e:
-                print(f"Error updating stock prices: {e}")
+                logger.error(f"Error updating stock prices: {e}")
             
             # Update every 30 seconds
             await asyncio.sleep(30)
