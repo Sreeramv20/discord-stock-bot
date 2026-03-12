@@ -1,25 +1,5 @@
-# Task 008 --- Game Mechanics
+Add game mechanics.
 
-Add gamification features.
+Features: daily reward achievement system cooldowns
 
-## Daily Bonus
-
-Command:
-
-/daily
-
-Users receive:
-
-\$500-\$2000 random bonus
-
-Cooldown: 24 hours.
-
-## Market Crash Events
-
-Random event that affects all users:
-
-Example message:
-
-"Market Crash! Tech stocks drop 5%"
-
-Applies price modifiers temporarily.
+Commands: /daily /achievements

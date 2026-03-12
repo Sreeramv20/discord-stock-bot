@@ -1,15 +1,5 @@
-# Task 009 --- Performance Tracking
+Track user performance metrics.
 
-Track daily account performance.
+Metrics: ROI total profit win rate
 
-Database table:
-
-daily_stats - user_id - date - net_worth
-
-Commands:
-
-/performance
-
-Show:
-
-Daily gain Weekly gain All time gain
+Display via /stats command.
