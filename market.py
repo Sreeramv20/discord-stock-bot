@@ -3,6 +3,7 @@ import time
 from typing import Optional, Dict, List
 import config
 import database
+import yfinance as yf
 
 class Market:
     def __init__(self):
@@ -10,16 +11,39 @@ class Market:
         
     async def fetch_stock_data(self, symbol: str) -> Optional[Dict]:
         """Fetch stock data from external API"""
-        # This would be implemented with actual API calls
-        # For now, we'll simulate it with mock data
-        return {
-            'symbol': symbol,
-            'name': f'{symbol} Company',
-            'current_price': 100.0 + (hash(symbol) % 100),
-            'previous_price': 95.0 + (hash(symbol) % 100),
-            'volume': 1000000,
-            'last_updated': time.time()
-        }
+        try:
+            # Fetch data using yfinance
+            stock = yf.Ticker(symbol)
+            info = stock.info
+            
+            # Get current price and previous close
+            current_price = info.get('currentPrice') or info.get('regularMarketPrice')
+            previous_close = info.get('previousClose')
+            
+            if not current_price:
+                return None
+                
+            # Calculate change and percent change
+            change = 0.0
+            percent_change = 0.0
+            
+            if previous_close:
+                change = current_price - previous_close
+                percent_change = (change / previous_close) * 100
+            
+            return {
+                'symbol': symbol,
+                'name': info.get('longName', symbol),
+                'current_price': current_price,
+                'previous_price': previous_close,
+                'change': change,
+                'percent_change': percent_change,
+                'volume': info.get('volume', 0),
+                'last_updated': time.time()
+            }
+        except Exception as e:
+            print(f"Error fetching stock data for {symbol}: {e}")
+            return None
     
     async def get_stock_info(self, symbol: str) -> Optional[Dict]:
         """Get stock information with caching"""
