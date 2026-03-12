@@ -43,6 +43,7 @@ class StockTradingBot(commands.Bot):
             await self.load_extension('cogs.trading_commands')
             await self.load_extension('cogs.portfolio_commands')
             await self.load_extension('cogs.leaderboard_commands')
+            await self.load_extension('cogs.daily_commands')  # Add the new daily commands cog
             logger.info("Successfully loaded all cogs")
         except Exception as e:
             logger.error(f"Failed to load cogs: {e}")

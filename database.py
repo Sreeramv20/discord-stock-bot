@@ -16,7 +16,8 @@ def init_db(db_path):
                 id INTEGER PRIMARY KEY,
                 username TEXT NOT NULL,
                 balance REAL DEFAULT 10000.0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_daily_claim TIMESTAMP
             )
         ''')
         
@@ -67,6 +68,17 @@ def init_db(db_path):
                 user_id INTEGER PRIMARY KEY,
                 total_value REAL NOT NULL,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            )
+        ''')
+        
+        # Create achievements table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS achievements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                achievement_name TEXT NOT NULL,
+                achieved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
