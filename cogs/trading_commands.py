@@ -53,6 +53,56 @@ class TradingCommands(commands.Cog):
         )
         
         await ctx.respond(embed=embed)
+        
+    @commands.slash_command(name="history", description="View your trade history")
+    async def history(self, ctx):
+        """View user's trade history"""
+        try:
+            conn = get_db_connection("stock_trading.db")
+            cursor = conn.cursor()
+            
+            # Get last 10 transactions for the user
+            cursor.execute('''
+                SELECT stock_symbol, transaction_type, quantity, price, total_amount, timestamp
+                FROM transactions 
+                WHERE user_id = ?
+                ORDER BY timestamp DESC
+                LIMIT 10
+            ''', (ctx.user.id,))
+            
+            transactions = cursor.fetchall()
+            
+            if not transactions:
+                await ctx.respond("You have no transaction history.")
+                return
+                
+            # Create embed with transaction history
+            embed = discord.Embed(
+                title=f"{ctx.user.display_name}'s Transaction History",
+                color=discord.Color.blue()
+            )
+            
+            for transaction in transactions:
+                transaction_type = transaction['transaction_type'].upper()
+                symbol = transaction['stock_symbol']
+                quantity = transaction['quantity']
+                price = transaction['price']
+                total_amount = transaction['total_amount']
+                timestamp = transaction['timestamp']
+                
+                embed.add_field(
+                    name=f"{transaction_type} {quantity} shares of {symbol}",
+                    value=f"Price: ${price:.2f}\nTotal: ${total_amount:.2f}\nTime: {timestamp}",
+                    inline=False
+                )
+                
+            await ctx.respond(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error getting transaction history: {e}")
+            await ctx.respond("Error retrieving transaction history.")
+        finally:
+            conn.close()
 
 def setup(bot):
     bot.add_cog(TradingCommands(bot))
