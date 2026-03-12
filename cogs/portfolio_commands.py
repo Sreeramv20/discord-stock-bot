@@ -38,7 +38,7 @@ class PortfolioCommands(commands.Cog):
             
             embed.add_field(
                 name=f"{item['stock_symbol']}",
-                value=f"Qty: {item['quantity']}\nAvg Price: ${item['avg_buy_price']:.2f}\nCurrent: ${item['current_price']:.2f}\nValue: ${value:.2f}\nProfit/Loss: ${profit_loss:.2f}",
+                value=f"Shares: {item['quantity']}\nCurrent Price: ${item['current_price']:.2f}\nTotal Value: ${value:.2f}\nProfit/Loss: ${profit_loss:.2f}",
                 inline=False
             )
             
