@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 import asyncio
 import logging
-from config import TOKEN, DATABASE_PATH
+from config import TOKEN, DATABASE_PATH, MARKET_UPDATE_INTERVAL, LEADERBOARD_REFRESH_INTERVAL
 from database import init_db
 from market import Market
 from trading import TradingEngine
@@ -50,8 +50,9 @@ class StockTradingBot(commands.Bot):
     async def on_ready(self):
         logger.info(f'{self.user} has logged in!')
         
-        # Start market price updates
+        # Start background tasks
         asyncio.create_task(self.update_market_prices())
+        asyncio.create_task(self.refresh_leaderboard())
 
     async def update_market_prices(self):
         """Periodically update stock prices"""
@@ -62,8 +63,20 @@ class StockTradingBot(commands.Bot):
             except Exception as e:
                 logger.error(f"Error updating stock prices: {e}")
             
-            # Update every 30 seconds
-            await asyncio.sleep(30)
+            # Update every configured interval
+            await asyncio.sleep(MARKET_UPDATE_INTERVAL)
+
+    async def refresh_leaderboard(self):
+        """Periodically update leaderboard"""
+        while True:
+            try:
+                await self.leaderboard.update_leaderboard()
+                logger.info("Leaderboard updated")
+            except Exception as e:
+                logger.error(f"Error updating leaderboard: {e}")
+            
+            # Update every configured interval
+            await asyncio.sleep(LEADERBOARD_REFRESH_INTERVAL)
 
 # Create and run the bot
 if __name__ == '__main__':
