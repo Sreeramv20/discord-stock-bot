@@ -25,7 +25,7 @@ class LeaderboardCommands(commands.Cog):
         for i, user in enumerate(top_users, 1):
             embed.add_field(
                 name=f"{i}. {user['username']}",
-                value=f"Net Worth: ${user['total_value']:.2f}",
+                value=f"Net Worth: ${user['net_worth']:.2f}\nProfit: ${user['total_profit']:.2f}",
                 inline=False
             )
             
@@ -34,16 +34,20 @@ class LeaderboardCommands(commands.Cog):
     @commands.slash_command(name="rank", description="Check your rank in the leaderboard")
     async def rank(self, ctx):
         """Display user's rank"""
-        rank = await self.leaderboard.get_user_rank(ctx.user.id)
-        net_worth = await self.leaderboard.get_user_net_worth(ctx.user.id)
+        user_data = await self.leaderboard.get_user_rank(ctx.user.id)
         
+        if not user_data:
+            await ctx.respond("You are not in the leaderboard yet.")
+            return
+            
         embed = discord.Embed(
             title=f"{ctx.user.display_name}'s Rank",
             color=discord.Color.blue()
         )
         
-        embed.add_field(name="Rank", value=rank)
-        embed.add_field(name="Net Worth", value=f"${net_worth:.2f}")
+        embed.add_field(name="Rank", value=user_data['rank'])
+        embed.add_field(name="Net Worth", value=f"${user_data['net_worth']:.2f}")
+        embed.add_field(name="Total Profit", value=f"${user_data['total_profit']:.2f}")
         
         await ctx.respond(embed=embed)
 
