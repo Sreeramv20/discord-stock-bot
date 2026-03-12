@@ -1,17 +1,12 @@
 import discord
 from discord.ext import commands
 import asyncio
-import logging
-from config import TOKEN, DATABASE_PATH, MARKET_UPDATE_INTERVAL, LEADERBOARD_REFRESH_INTERVAL
-from database import init_db
-from market import Market
-from trading import TradingEngine
-from portfolio import PortfolioSystem
-from leaderboard import Leaderboard
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import config
+import database
+import market
+import portfolio
+import trading
+import leaderboard
 
 class StockTradingBot(commands.Bot):
     def __init__(self):
@@ -25,61 +20,47 @@ class StockTradingBot(commands.Bot):
             help_command=None
         )
         
-        self.market = Market()
-        self.trading_engine = TradingEngine()
-        self.portfolio_system = PortfolioSystem()
-        self.leaderboard = Leaderboard()
+        # Initialize systems
+        self.market = market.Market()
+        self.portfolio_system = portfolio.PortfolioSystem()
+        self.trading_engine = trading.TradingEngine()
+        self.leaderboard = leaderboard.Leaderboard()
         
     async def setup_hook(self):
+        """Setup bot with cogs."""
         # Initialize database
-        init_db(DATABASE_PATH)
+        database.init_db(config.DB_PATH)
         
-        # Initialize market with default stocks
-        await self.market.initialize_stocks()
-        
-        # Load cogs
-        try:
-            await self.load_extension('cogs.market_commands')
-            await self.load_extension('cogs.trading_commands')
-            await self.load_extension('cogs.portfolio_commands')
-            await self.load_extension('cogs.leaderboard_commands')
-            await self.load_extension('cogs.daily_commands')  # Add the new daily commands cog
-            logger.info("Successfully loaded all cogs")
-        except Exception as e:
-            logger.error(f"Failed to load cogs: {e}")
-        
-    async def on_ready(self):
-        logger.info(f'{self.user} has logged in!')
+        # Load all cogs
+        await self.load_extension('cogs.daily_commands')
+        await self.load_extension('cogs.leaderboard_commands')
+        await self.load_extension('cogs.market_commands')
+        await self.load_extension('cogs.portfolio_commands')
+        await self.load_extension('cogs.trading_commands')
         
         # Start background tasks
-        asyncio.create_task(self.update_market_prices())
-        asyncio.create_task(self.refresh_leaderboard())
-
-    async def update_market_prices(self):
-        """Periodically update stock prices"""
-        while True:
-            try:
-                await self.market.update_all_prices()
-                logger.info("Stock prices updated")
-            except Exception as e:
-                logger.error(f"Error updating stock prices: {e}")
-            
-            # Update every configured interval
-            await asyncio.sleep(MARKET_UPDATE_INTERVAL)
-
-    async def refresh_leaderboard(self):
-        """Periodically update leaderboard"""
+        self.loop.create_task(self.start_background_tasks())
+    
+    async def start_background_tasks(self):
+        """Start background tasks like market updates."""
+        # Start market updates
+        self.loop.create_task(self.market.start_market_updates())
+        
+        # Start leaderboard updates (every 10 minutes)
         while True:
             try:
                 await self.leaderboard.update_leaderboard()
-                logger.info("Leaderboard updated")
+                await asyncio.sleep(600)  # 10 minutes
             except Exception as e:
-                logger.error(f"Error updating leaderboard: {e}")
-            
-            # Update every configured interval
-            await asyncio.sleep(LEADERBOARD_REFRESH_INTERVAL)
+                print(f"Error updating leaderboard: {e}")
+                await asyncio.sleep(60)
+    
+    async def on_ready(self):
+        """Called when bot is ready."""
+        print(f'{self.user} has logged in!')
+        
+        # Initialize market with default stocks
+        await self.market.initialize_stocks()
 
-# Create and run the bot
-if __name__ == '__main__':
-    bot = StockTradingBot()
-    bot.run(TOKEN)
+# Create bot instance
+bot = StockTradingBot()

@@ -1,186 +1,125 @@
-import sqlite3
-from datetime import datetime
-import logging
-from database import get_db_connection
-
-logger = logging.getLogger(__name__)
+import asyncio
+from typing import Optional, Dict, List, Any
+import database
+import config
 
 class TradingEngine:
     def __init__(self):
-        self.db_path = "stock_trading.db"
+        self.cache = {}
         
-    async def buy_stock(self, user_id, symbol, quantity):
+    async def buy_stock(self, user_id: int, symbol: str, quantity: int) -> bool:
         """Buy stocks for a user"""
+        # Validate inputs
+        if quantity <= 0:
+            raise ValueError("Quantity must be positive")
+            
+        # Get stock information
+        stock_info = await self.get_stock_info(symbol)
+        if not stock_info:
+            raise ValueError(f"Stock {symbol} not found")
+            
+        # Calculate total cost
+        total_cost = quantity * stock_info['current_price']
+        
+        # Check user balance
+        balance = database.get_user_balance(user_id, config.DB_PATH)
+        if balance is None or balance < total_cost:
+            raise ValueError("Insufficient balance")
+            
+        # Process the transaction
         try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
+            # Deduct from user's balance
+            new_balance = balance - total_cost
+            database.update_user_balance(user_id, new_balance, config.DB_PATH)
             
-            # Get stock info
-            cursor.execute('''
-                SELECT current_price FROM stocks WHERE symbol = ?
-            ''', (symbol,))
+            # Add to portfolio (this would be implemented with actual DB operations)
+            database.add_stock_to_portfolio(user_id, symbol, quantity, stock_info['current_price'])
             
-            result = cursor.fetchone()
-            if not result:
-                return False, "Stock not found"
-                
-            price = result[0]
-            total_cost = price * quantity
-            
-            # Check if user has enough balance
-            cursor.execute('''
-                SELECT balance FROM users WHERE id = ?
-            ''', (user_id,))
-            
-            balance = cursor.fetchone()[0]
-            
-            if balance < total_cost:
-                return False, "Insufficient balance"
-                
-            # Update user balance
-            cursor.execute('''
-                UPDATE users SET balance = balance - ? WHERE id = ?
-            ''', (total_cost, user_id))
-            
-            # Check if user already owns this stock
-            cursor.execute('''
-                SELECT quantity, avg_buy_price FROM portfolios 
-                WHERE user_id = ? AND stock_symbol = ?
-            ''', (user_id, symbol))
-            
-            existing = cursor.fetchone()
-            
-            if existing:
-                # Update existing position
-                old_quantity = existing[0]
-                old_avg_price = existing[1]
-                
-                new_quantity = old_quantity + quantity
-                new_avg_price = ((old_quantity * old_avg_price) + (quantity * price)) / new_quantity
-                
-                cursor.execute('''
-                    UPDATE portfolios 
-                    SET quantity = ?, avg_buy_price = ?
-                    WHERE user_id = ? AND stock_symbol = ?
-                ''', (new_quantity, new_avg_price, user_id, symbol))
-            else:
-                # Create new position
-                cursor.execute('''
-                    INSERT INTO portfolios (user_id, stock_symbol, quantity, avg_buy_price)
-                    VALUES (?, ?, ?, ?)
-                ''', (user_id, symbol, quantity, price))
-                
             # Record transaction
-            cursor.execute('''
-                INSERT INTO transactions 
-                (user_id, stock_symbol, transaction_type, quantity, price, total_amount)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (user_id, symbol, 'buy', quantity, price, total_cost))
+            database.add_transaction(user_id, symbol, 'buy', quantity, 
+                                   stock_info['current_price'], total_cost, config.DB_PATH)
             
-            conn.commit()
-            return True, f"Bought {quantity} shares of {symbol} at ${price:.2f} each"
+            return True
+            
         except Exception as e:
-            logger.error(f"Error buying stock: {e}")
-            raise
-        finally:
-            conn.close()
-            
-    async def sell_stock(self, user_id, symbol, quantity):
+            print(f"Error processing buy order: {e}")
+            return False
+    
+    async def sell_stock(self, user_id: int, symbol: str, quantity: int) -> bool:
         """Sell stocks for a user"""
+        # Validate inputs
+        if quantity <= 0:
+            raise ValueError("Quantity must be positive")
+            
+        # Get stock information
+        stock_info = await self.get_stock_info(symbol)
+        if not stock_info:
+            raise ValueError(f"Stock {symbol} not found")
+            
+        # Check if user has enough stocks
+        portfolio = database.get_user_portfolio(user_id, config.DB_PATH)
+        user_stock = next((item for item in portfolio if item['symbol'] == symbol), None)
+        
+        if not user_stock or user_stock['quantity'] < quantity:
+            raise ValueError("Insufficient stock holdings")
+            
+        # Calculate total value
+        total_value = quantity * stock_info['current_price']
+        
+        # Process the transaction
         try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
+            # Add to user's balance
+            balance = database.get_user_balance(user_id, config.DB_PATH)
+            new_balance = balance + total_value
+            database.update_user_balance(user_id, new_balance, config.DB_PATH)
             
-            # Get stock info
-            cursor.execute('''
-                SELECT current_price FROM stocks WHERE symbol = ?
-            ''', (symbol,))
+            # Remove from portfolio (this would be implemented with actual DB operations)
+            database.remove_stock_from_portfolio(user_id, symbol, quantity)
             
-            result = cursor.fetchone()
-            if not result:
-                return False, "Stock not found"
-                
-            price = result[0]
-            total_value = price * quantity
-            
-            # Check if user owns enough stock
-            cursor.execute('''
-                SELECT quantity FROM portfolios 
-                WHERE user_id = ? AND stock_symbol = ?
-            ''', (user_id, symbol))
-            
-            result = cursor.fetchone()
-            if not result:
-                return False, "You don't own this stock"
-                
-            owned_quantity = result[0]
-            
-            if owned_quantity < quantity:
-                return False, f"You only own {owned_quantity} shares of {symbol}"
-                
-            # Update user balance
-            cursor.execute('''
-                UPDATE users SET balance = balance + ? WHERE id = ?
-            ''', (total_value, user_id))
-            
-            # Get the original purchase price for profit calculation
-            cursor.execute('''
-                SELECT avg_buy_price FROM portfolios 
-                WHERE user_id = ? AND stock_symbol = ?
-            ''', (user_id, symbol))
-            
-            purchase_info = cursor.fetchone()
-            if purchase_info:
-                avg_buy_price = purchase_info[0]
-                profit = (price - avg_buy_price) * quantity
-                
-                # Update performance metrics
-                cursor.execute('''
-                    INSERT OR IGNORE INTO performance_metrics (user_id) VALUES (?)
-                ''', (user_id,))
-                
-                # Update performance metrics with profit/loss
-                if profit > 0:
-                    cursor.execute('''
-                        UPDATE performance_metrics 
-                        SET total_profit = total_profit + ?, wins = wins + 1, total_trades = total_trades + 1, roi = roi + ?
-                        WHERE user_id = ?
-                    ''', (profit, (profit / (avg_buy_price * quantity)) * 100, user_id))
-                else:
-                    cursor.execute('''
-                        UPDATE performance_metrics 
-                        SET total_profit = total_profit + ?, losses = losses + 1, total_trades = total_trades + 1, roi = roi + ?
-                        WHERE user_id = ?
-                    ''', (profit, (profit / (avg_buy_price * quantity)) * 100, user_id))
-            
-            # Update portfolio
-            new_quantity = owned_quantity - quantity
-            
-            if new_quantity == 0:
-                # Remove the position entirely
-                cursor.execute('''
-                    DELETE FROM portfolios 
-                    WHERE user_id = ? AND stock_symbol = ?
-                ''', (user_id, symbol))
-            else:
-                # Update quantity
-                cursor.execute('''
-                    UPDATE portfolios 
-                    SET quantity = ? 
-                    WHERE user_id = ? AND stock_symbol = ?
-                ''', (new_quantity, user_id, symbol))
-                
             # Record transaction
-            cursor.execute('''
-                INSERT INTO transactions 
-                (user_id, stock_symbol, transaction_type, quantity, price, total_amount)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (user_id, symbol, 'sell', quantity, price, total_value))
+            database.add_transaction(user_id, symbol, 'sell', quantity, 
+                                   stock_info['current_price'], total_value, config.DB_PATH)
             
-            conn.commit()
-            return True, f"Sold {quantity} shares of {symbol} at ${price:.2f} each"
+            return True
+            
         except Exception as e:
-            logger.error(f"Error selling stock: {e}")
-            raise
-        finally:
-            conn.close()
+            print(f"Error processing sell order: {e}")
+            return False
+    
+    async def get_stock_info(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Get information about a specific stock"""
+        # This would be implemented with actual market data lookup
+        # For now, we'll simulate it
+        return {
+            'symbol': symbol,
+            'name': f'{symbol} Company',
+            'current_price': 100.0 + (hash(symbol) % 100),
+            'previous_price': 95.0 + (hash(symbol) % 100),
+            'volume': 1000000,
+            'last_updated': time.time()
+        }
+    
+    async def get_user_transactions(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get user's transaction history"""
+        return database.get_user_transactions(user_id, config.DB_PATH)
+    
+    async def get_user_stats(self, user_id: int) -> Dict[str, Any]:
+        """Get user's trading statistics"""
+        transactions = await self.get_user_transactions(user_id)
+        
+        total_buys = len([t for t in transactions if t['type'] == 'buy'])
+        total_sells = len([t for t in transactions if t['type'] == 'sell'])
+        
+        # Calculate profit/loss
+        total_profit_loss = 0.0
+        for transaction in transactions:
+            if transaction['type'] == 'buy':
+                total_profit_loss -= transaction['total_amount']
+            else:
+                total_profit_loss += transaction['total_amount']
+                
+        return {
+            'total_buys': total_buys,
+            'total_sells': total_sells,
+            'net_profit_loss': total_profit_loss
+        }

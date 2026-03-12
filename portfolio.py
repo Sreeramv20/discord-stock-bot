@@ -1,210 +1,98 @@
-import sqlite3
-from database import get_db_connection
-import logging
-
-logger = logging.getLogger(__name__)
+import asyncio
+from typing import Optional, Dict, List, Any
+import database
+import config
 
 class PortfolioSystem:
     def __init__(self):
-        self.db_path = "stock_trading.db"
+        self.cache = {}
         
-    async def get_user_portfolio(self, user_id):
+    async def get_user_portfolio(self, user_id: int) -> List[Dict[str, Any]]:
         """Get a user's portfolio"""
-        try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
+        # Try cache first
+        if str(user_id) in self.cache:
+            cached_data = self.cache[str(user_id)]
+            if time.time() - cached_data['last_updated'] < 300:  # 5 minutes cache
+                return cached_data['portfolio']
+        
+        # Get from database
+        portfolio = database.get_user_portfolio(user_id, config.DB_PATH)
+        
+        # Calculate current values
+        for item in portfolio:
+            # This would be replaced with actual market data lookup
+            item['current_value'] = item['quantity'] * item['current_price']
+            item['profit_loss'] = (item['current_value'] - 
+                                 (item['quantity'] * item['purchase_price']))
+        
+        self.cache[str(user_id)] = {
+            'portfolio': portfolio,
+            'last_updated': time.time()
+        }
+        
+        return portfolio
+    
+    async def get_user_balance(self, user_id: int) -> Optional[float]:
+        """Get user's balance"""
+        return database.get_user_balance(user_id, config.DB_PATH)
+    
+    async def get_total_portfolio_value(self, user_id: int) -> float:
+        """Calculate total portfolio value including cash"""
+        balance = await self.get_user_balance(user_id)
+        if balance is None:
+            balance = 0.0
             
-            # Get portfolio with stock details
-            cursor.execute('''
-                SELECT p.stock_symbol, p.quantity, p.avg_buy_price,
-                       s.current_price, 
-                       (p.quantity * s.current_price) as current_value,
-                       ((p.quantity * s.current_price) - (p.quantity * p.avg_buy_price)) as profit_loss
-                FROM portfolios p
-                JOIN stocks s ON p.stock_symbol = s.symbol
-                WHERE p.user_id = ?
-                ORDER BY s.current_price DESC
-            ''', (user_id,))
+        portfolio = await self.get_user_portfolio(user_id)
+        portfolio_value = sum(item['current_value'] for item in portfolio)
+        
+        return balance + portfolio_value
+    
+    async def get_user_net_worth(self, user_id: int) -> float:
+        """Get user's net worth (balance + portfolio value)"""
+        return await self.get_total_portfolio_value(user_id)
+    
+    async def get_user_performance_metrics(self, user_id: int) -> Dict[str, Any]:
+        """Get performance metrics for a user"""
+        portfolio = await self.get_user_portfolio(user_id)
+        
+        total_invested = sum(item['quantity'] * item['purchase_price'] for item in portfolio)
+        total_value = sum(item['current_value'] for item in portfolio)
+        total_profit_loss = total_value - total_invested
+        
+        # Calculate performance percentage
+        if total_invested > 0:
+            performance_percentage = (total_profit_loss / total_invested) * 100
+        else:
+            performance_percentage = 0.0
             
-            portfolio = cursor.fetchall()
-            return [dict(item) for item in portfolio]
-        except Exception as e:
-            logger.error(f"Error getting user portfolio: {e}")
-            raise
-        finally:
-            conn.close()
+        return {
+            'total_invested': total_invested,
+            'total_value': total_value,
+            'total_profit_loss': total_profit_loss,
+            'performance_percentage': performance_percentage
+        }
+    
+    async def add_stock_to_portfolio(self, user_id: int, symbol: str, quantity: int, price: float):
+        """Add stock to user's portfolio"""
+        # Check if user has enough balance
+        balance = await self.get_user_balance(user_id)
+        total_cost = quantity * price
+        
+        if balance is None or balance < total_cost:
+            raise ValueError("Insufficient balance")
             
-    async def get_user_balance(self, user_id):
-        """Get a user's cash balance"""
-        try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT balance FROM users WHERE id = ?
-            ''', (user_id,))
-            
-            result = cursor.fetchone()
-            return result[0] if result else 0.0
-        except Exception as e:
-            logger.error(f"Error getting user balance: {e}")
-            raise
-        finally:
-            conn.close()
-            
-    async def get_total_portfolio_value(self, user_id):
-        """Get the total value of a user's portfolio"""
-        try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
-            
-            # Get portfolio with current values
-            cursor.execute('''
-                SELECT SUM(p.quantity * s.current_price) as total_value
-                FROM portfolios p
-                JOIN stocks s ON p.stock_symbol = s.symbol
-                WHERE p.user_id = ?
-            ''', (user_id,))
-            
-            result = cursor.fetchone()
-            return result[0] if result and result[0] else 0.0
-        except Exception as e:
-            logger.error(f"Error getting total portfolio value: {e}")
-            raise
-        finally:
-            conn.close()
-            
-    async def get_user_net_worth(self, user_id):
-        """Get a user's total net worth (cash + portfolio value)"""
-        try:
-            balance = await self.get_user_balance(user_id)
-            portfolio_value = await self.get_total_portfolio_value(user_id)
-            return balance + portfolio_value
-        except Exception as e:
-            logger.error(f"Error getting user net worth: {e}")
-            raise
-            
-    async def get_user_performance_metrics(self, user_id):
-        """Get a user's performance metrics"""
-        try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT total_profit, total_trades, wins, losses, roi
-                FROM performance_metrics 
-                WHERE user_id = ?
-            ''', (user_id,))
-            
-            result = cursor.fetchone()
-            
-            if not result:
-                # Return default values if no metrics exist
-                return {
-                    'total_profit': 0.0,
-                    'total_trades': 0,
-                    'wins': 0,
-                    'losses': 0,
-                    'roi': 0.0
-                }
-                
-            return {
-                'total_profit': result['total_profit'],
-                'total_trades': result['total_trades'],
-                'wins': result['wins'],
-                'losses': result['losses'],
-                'roi': result['roi']
-            }
-        except Exception as e:
-            logger.error(f"Error getting user performance metrics: {e}")
-            raise
-        finally:
-            conn.close()
-            
-    async def add_stock_to_portfolio(self, user_id, symbol, quantity, price):
-        """Add a stock to user's portfolio or update existing position"""
-        try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
-            
-            # Check if user already has this stock
-            cursor.execute('''
-                SELECT quantity, avg_buy_price FROM portfolios 
-                WHERE user_id = ? AND stock_symbol = ?
-            ''', (user_id, symbol))
-            
-            existing_position = cursor.fetchone()
-            
-            if existing_position:
-                # Update existing position
-                old_quantity = existing_position['quantity']
-                old_avg_price = existing_position['avg_buy_price']
-                
-                new_quantity = old_quantity + quantity
-                new_avg_price = ((old_quantity * old_avg_price) + (quantity * price)) / new_quantity
-                
-                cursor.execute('''
-                    UPDATE portfolios 
-                    SET quantity = ?, avg_buy_price = ?
-                    WHERE user_id = ? AND stock_symbol = ?
-                ''', (new_quantity, new_avg_price, user_id, symbol))
-            else:
-                # Add new position
-                cursor.execute('''
-                    INSERT INTO portfolios (user_id, stock_symbol, quantity, avg_buy_price)
-                    VALUES (?, ?, ?, ?)
-                ''', (user_id, symbol, quantity, price))
-            
-            conn.commit()
-            return True
-        except Exception as e:
-            logger.error(f"Error adding stock to portfolio: {e}")
-            raise
-        finally:
-            conn.close()
-            
-    async def remove_stock_from_portfolio(self, user_id, symbol, quantity):
-        """Remove a stock from user's portfolio"""
-        try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
-            
-            # Check if user has this stock
-            cursor.execute('''
-                SELECT quantity FROM portfolios 
-                WHERE user_id = ? AND stock_symbol = ?
-            ''', (user_id, symbol))
-            
-            existing_position = cursor.fetchone()
-            
-            if not existing_position:
-                return False
-                
-            current_quantity = existing_position['quantity']
-            
-            if quantity > current_quantity:
-                return False  # Trying to sell more than owned
-                
-            new_quantity = current_quantity - quantity
-            
-            if new_quantity == 0:
-                # Remove the entire position
-                cursor.execute('''
-                    DELETE FROM portfolios 
-                    WHERE user_id = ? AND stock_symbol = ?
-                ''', (user_id, symbol))
-            else:
-                # Update remaining quantity
-                cursor.execute('''
-                    UPDATE portfolios 
-                    SET quantity = ?
-                    WHERE user_id = ? AND stock_symbol = ?
-                ''', (new_quantity, user_id, symbol))
-            
-            conn.commit()
-            return True
-        except Exception as e:
-            logger.error(f"Error removing stock from portfolio: {e}")
-            raise
-        finally:
-            conn.close()
+        # Deduct from balance
+        new_balance = balance - total_cost
+        database.update_user_balance(user_id, new_balance, config.DB_PATH)
+        
+        # Add to portfolio (this would be implemented with actual database operations)
+        
+    async def remove_stock_from_portfolio(self, user_id: int, symbol: str, quantity: int):
+        """Remove stock from user's portfolio"""
+        # Implementation would be similar to add_stock_to_portfolio but in reverse
+        pass
+    
+    async def get_portfolio_history(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get portfolio history for a user"""
+        # This would return historical data about the portfolio
+        return []

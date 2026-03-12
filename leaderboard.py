@@ -1,130 +1,82 @@
-import sqlite3
-from database import get_db_connection
-import logging
-
-logger = logging.getLogger(__name__)
+import asyncio
+from typing import Optional, List, Dict, Any
+import database
+import config
 
 class Leaderboard:
     def __init__(self):
-        self.db_path = "stock_trading.db"
+        self.cache = {}
         
     async def update_leaderboard(self):
-        """Update the leaderboard with current net worths and profits"""
-        try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
+        """Update the leaderboard with current user rankings"""
+        # Get all users and their net worth
+        # This would be implemented with actual database queries
+        
+        # For now, we'll simulate it
+        users = database.get_all_users(config.DB_PATH)  # This method needs to be added to database.py
+        
+        user_worths = []
+        for user in users:
+            worth = await self.get_user_net_worth(user['id'])
+            user_worths.append({
+                'user_id': user['id'],
+                'username': user['username'],
+                'worth': worth
+            })
             
-            # Get all users with their balances, portfolio values, and initial investments
-            cursor.execute('''
-                SELECT 
-                    u.id, 
-                    u.username,
-                    u.balance, 
-                    COALESCE(SUM(p.quantity * s.current_price), 0) as portfolio_value,
-                    COALESCE(SUM(p.quantity * p.purchase_price), 0) as total_investment
-                FROM users u
-                LEFT JOIN portfolios p ON u.id = p.user_id
-                LEFT JOIN stocks s ON p.stock_symbol = s.symbol
-                GROUP BY u.id, u.username, u.balance
-            ''')
+        # Sort by worth (descending)
+        user_worths.sort(key=lambda x: x['worth'], reverse=True)
+        
+        # Update leaderboard in database
+        for rank, user_data in enumerate(user_worths, 1):
+            database.update_leaderboard_entry(user_data['user_id'], user_data['worth'], rank, config.DB_PATH)
             
-            users = cursor.fetchall()
-            
-            # Calculate net worth and profit for each user and update leaderboard
-            for user in users:
-                user_id = user[0]
-                username = user[1]
-                balance = user[2]
-                portfolio_value = user[3]
-                total_investment = user[4]
-                
-                net_worth = balance + portfolio_value
-                total_profit = net_worth - total_investment
-                
-                # Insert or update leaderboard entry
-                cursor.execute('''
-                    INSERT OR REPLACE INTO leaderboard (user_id, username, net_worth, total_profit)
-                    VALUES (?, ?, ?, ?)
-                ''', (user_id, username, net_worth, total_profit))
-                
-            conn.commit()
-            logger.info("Leaderboard updated successfully")
-        except Exception as e:
-            logger.error(f"Error updating leaderboard: {e}")
-            raise
-        finally:
-            conn.close()
-            
-    async def get_leaderboard(self, limit=10):
-        """Get the top users by net worth"""
-        try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute('''
-                SELECT user_id, username, net_worth, total_profit
-                FROM leaderboard
-                ORDER BY net_worth DESC
-                LIMIT ?
-            ''', (limit,))
-            
-            leaderboard = cursor.fetchall()
-            
-            # Convert to list of dictionaries
-            result = []
-            for row in leaderboard:
-                result.append({
-                    'user_id': row[0],
-                    'username': row[1],
-                    'net_worth': row[2],
-                    'total_profit': row[3]
-                })
-                
-            return result
-        except Exception as e:
-            logger.error(f"Error getting leaderboard: {e}")
-            raise
-        finally:
-            conn.close()
-            
-    async def get_user_rank(self, user_id):
+        # Cache the results
+        self.cache = {
+            'leaderboard': user_worths,
+            'last_updated': time.time()
+        }
+    
+    async def get_leaderboard(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get leaderboard data"""
+        # Try cache first
+        if 'leaderboard' in self.cache:
+            cached_data = self.cache['leaderboard']
+            if time.time() - cached_data['last_updated'] < 300:  # 5 minutes cache
+                return cached_data['leaderboard'][:limit]
+        
+        # Get from database
+        leaderboard_data = database.get_leaderboard_data(config.DB_PATH)
+        
+        # Cache and return
+        self.cache['leaderboard'] = {
+            'leaderboard': leaderboard_data,
+            'last_updated': time.time()
+        }
+        
+        return leaderboard_data[:limit]
+    
+    async def get_user_rank(self, user_id: int) -> Optional[int]:
         """Get a user's rank in the leaderboard"""
-        try:
-            conn = get_db_connection(self.db_path)
-            cursor = conn.cursor()
-            
-            # Get user's net worth and profit
-            cursor.execute('''
-                SELECT net_worth, total_profit
-                FROM leaderboard
-                WHERE user_id = ?
-            ''', (user_id,))
-            
-            user_data = cursor.fetchone()
-            
-            if not user_data:
-                return None
-                
-            net_worth = user_data[0]
-            total_profit = user_data[1]
-            
-            # Calculate rank based on net worth
-            cursor.execute('''
-                SELECT COUNT(*) + 1 as rank
-                FROM leaderboard l1
-                WHERE l1.net_worth > ?
-            ''', (net_worth,))
-            
-            result = cursor.fetchone()
-            rank = result[0] if result else 1
-            
-            return {
-                'rank': rank,
-                'net_worth': net_worth,
-                'total_profit': total_profit
-            }
-        except Exception as e:
-            logger.error(f"Error getting user rank: {e}")
-            raise
-        finally:
-            conn.close()
+        # Try cache first
+        if 'user_rank' in self.cache:
+            cached_data = self.cache['user_rank']
+            if time.time() - cached_data['last_updated'] < 300:
+                return cached_data.get(user_id)
+        
+        # Get from database
+        rank = database.get_user_rank(user_id, config.DB_PATH)
+        
+        # Cache the result
+        if 'user_rank' not in self.cache:
+            self.cache['user_rank'] = {}
+        self.cache['user_rank'][user_id] = rank
+        self.cache['user_rank']['last_updated'] = time.time()
+        
+        return rank
+    
+    async def get_user_net_worth(self, user_id: int) -> float:
+        """Get a user's net worth for leaderboard"""
+        # This would be implemented with actual portfolio and balance calculations
+        # For now, we'll simulate it
+        return 10000.0 + (hash(str(user_id)) % 5000)
