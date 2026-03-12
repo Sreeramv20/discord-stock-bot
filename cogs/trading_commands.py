@@ -168,9 +168,6 @@ class TradingCommands(commands.Cog):
         except Exception as e:
             logger.error(f"Error getting user stats: {e}")
             await ctx.respond("Error retrieving trading statistics.")
-        finally:
-            if 'conn' in locals():
-                conn.close()
 
 def setup(bot):
     bot.add_cog(TradingCommands(bot))
