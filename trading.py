@@ -1,6 +1,6 @@
 import asyncio
 from typing import Optional, Dict, List, Any
-import time  # Added import
+import time
 import database
 import config
 
@@ -33,7 +33,7 @@ class TradingEngine:
             new_balance = balance - total_cost
             database.update_user_balance(user_id, new_balance, config.DB_PATH)
             
-            # Add to portfolio (this would be implemented with actual DB operations)
+            # Add to portfolio
             database.add_stock_to_portfolio(user_id, symbol, quantity, stock_info['current_price'])
             
             # Record transaction
@@ -74,7 +74,7 @@ class TradingEngine:
             new_balance = balance + total_value
             database.update_user_balance(user_id, new_balance, config.DB_PATH)
             
-            # Remove from portfolio (this would be implemented with actual DB operations)
+            # Remove from portfolio or reduce quantity
             database.remove_stock_from_portfolio(user_id, symbol, quantity)
             
             # Record transaction
