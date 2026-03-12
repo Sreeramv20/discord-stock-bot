@@ -2,6 +2,10 @@ import discord
 from discord.ext import commands
 from trading import TradingEngine
 from portfolio import PortfolioSystem
+from database import get_db_connection
+import logging
+
+logger = logging.getLogger(__name__)
 
 class TradingCommands(commands.Cog):
     def __init__(self, bot):
@@ -102,7 +106,8 @@ class TradingCommands(commands.Cog):
             logger.error(f"Error getting transaction history: {e}")
             await ctx.respond("Error retrieving transaction history.")
         finally:
-            conn.close()
+            if 'conn' in locals():
+                conn.close()
 
 def setup(bot):
     bot.add_cog(TradingCommands(bot))
