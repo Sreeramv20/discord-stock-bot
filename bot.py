@@ -29,6 +29,9 @@ class StockTradingBot(commands.Bot):
         # Initialize database
         init_db(DATABASE_PATH)
         
+        # Initialize market with default stocks
+        await self.market.initialize_stocks()
+        
         # Load cogs
         await self.load_extension('cogs.market_commands')
         await self.load_extension('cogs.trading_commands')
