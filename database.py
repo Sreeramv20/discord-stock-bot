@@ -15,7 +15,8 @@ def init_db(db_path):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
-                cash_balance REAL DEFAULT 50000.0
+                cash_balance REAL DEFAULT 50000.0,
+                last_daily_claim TIMESTAMP
             )
         ''')
         
@@ -40,6 +41,17 @@ def init_db(db_path):
                 shares INTEGER NOT NULL,
                 price REAL NOT NULL,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id)
+            )
+        ''')
+        
+        # Create achievements table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS achievements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                achievement_name TEXT NOT NULL,
+                achieved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             )
         ''')
