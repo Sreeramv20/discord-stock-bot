@@ -1,55 +1,93 @@
+import logging
+
 import discord
+from discord import app_commands
 from discord.ext import commands
-from leaderboard import Leaderboard
+
+from utils.formatting import format_currency, rank_emoji, profit_emoji
+
+logger = logging.getLogger(__name__)
+
 
 class LeaderboardCommands(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.leaderboard = Leaderboard()
-        
-    @commands.slash_command(name="leaderboard", description="View the leaderboard")
-    async def leaderboard(self, ctx):
-        """Display the leaderboard"""
-        top_users = await self.leaderboard.get_leaderboard(10)
-        
-        if not top_users:
-            await ctx.respond("No users in the leaderboard yet.")
-            return
-            
-        embed = discord.Embed(
-            title="Leaderboard",
-            description="Top 10 Users by Net Worth",
-            color=discord.Color.gold()
-        )
-        
-        for i, user in enumerate(top_users, 1):
-            embed.add_field(
-                name=f"{i}. {user['username']}",
-                value=f"Net Worth: ${user['net_worth']:.2f}\nProfit: ${user['total_profit']:.2f}",
-                inline=False
-            )
-            
-        await ctx.respond(embed=embed)
-        
-    @commands.slash_command(name="rank", description="Check your rank in the leaderboard")
-    async def rank(self, ctx):
-        """Display user's rank"""
-        user_data = await self.leaderboard.get_user_rank(ctx.user.id)
-        
-        if not user_data:
-            await ctx.respond("You are not in the leaderboard yet.")
-            return
-            
-        embed = discord.Embed(
-            title=f"{ctx.user.display_name}'s Rank",
-            color=discord.Color.blue()
-        )
-        
-        embed.add_field(name="Rank", value=user_data['rank'])
-        embed.add_field(name="Net Worth", value=f"${user_data['net_worth']:.2f}")
-        embed.add_field(name="Total Profit", value=f"${user_data['total_profit']:.2f}")
-        
-        await ctx.respond(embed=embed)
 
-def setup(bot):
-    bot.add_cog(LeaderboardCommands(bot))
+    @app_commands.command(name="leaderboard", description="View the top traders leaderboard")
+    @app_commands.checks.cooldown(1, 10.0)
+    async def leaderboard(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        try:
+            top = await self.bot.leaderboard.get_top(10)
+            if not top:
+                await interaction.followup.send(
+                    "Leaderboard is empty. Start trading to get ranked!"
+                )
+                return
+
+            embed = discord.Embed(
+                title="Leaderboard — Top Traders",
+                color=discord.Color.gold(),
+            )
+
+            lines = []
+            for entry in top:
+                rank = entry.get("rank", "?")
+                username = entry.get("username", str(entry["user_id"]))
+
+                try:
+                    user = await self.bot.fetch_user(entry["user_id"])
+                    if user:
+                        username = user.display_name
+                except Exception:
+                    pass
+
+                nw = entry.get("net_worth", 0)
+                profit = entry.get("profit", 0)
+                emoji = profit_emoji(profit)
+                lines.append(
+                    f"{rank_emoji(rank)} **{username}**\n"
+                    f"  Net Worth: {format_currency(nw)} | "
+                    f"Profit: {emoji} {format_currency(profit)}"
+                )
+
+            embed.description = "\n\n".join(lines)
+            embed.set_footer(text="Rankings update periodically")
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            logger.error("Leaderboard error: %s", e, exc_info=True)
+            await interaction.followup.send("Failed to load leaderboard.", ephemeral=True)
+
+    @app_commands.command(name="rank", description="Check your ranking on the leaderboard")
+    @app_commands.checks.cooldown(1, 5.0)
+    async def rank(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        try:
+            entry = await self.bot.leaderboard.get_rank(interaction.user.id)
+            if not entry:
+                await interaction.followup.send(
+                    "You're not ranked yet. Make a trade or claim `/daily` to get started!",
+                    ephemeral=True,
+                )
+                return
+
+            profit = entry.get("profit", 0)
+            embed = discord.Embed(
+                title=f"{interaction.user.display_name}'s Ranking",
+                color=discord.Color.blue(),
+            )
+            embed.add_field(name="Rank", value=rank_emoji(entry["rank"]), inline=True)
+            embed.add_field(name="Net Worth", value=format_currency(entry["net_worth"]), inline=True)
+            embed.add_field(
+                name="Profit",
+                value=f"{profit_emoji(profit)} {format_currency(profit)}",
+                inline=True,
+            )
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            logger.error("Rank error: %s", e, exc_info=True)
+            await interaction.followup.send("Failed to get rank.", ephemeral=True)
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(LeaderboardCommands(bot))

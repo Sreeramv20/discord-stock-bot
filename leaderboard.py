@@ -1,107 +1,65 @@
-import asyncio
-from typing import Optional, List, Dict, Any
-import time  # Added import
-import database
+import logging
+import time
+
 import config
+from database import Database
+from portfolio import PortfolioSystem
+
+logger = logging.getLogger(__name__)
+
 
 class Leaderboard:
-    def __init__(self):
-        self.cache = {}
-        
-    async def update_leaderboard(self):
-        """Update the leaderboard with current user rankings"""
-        # Get all users and their net worth
-        users = database.get_all_users(config.DB_PATH)
-        
-        user_worths = []
+    def __init__(self, db: Database, portfolio: PortfolioSystem):
+        self.db = db
+        self.portfolio = portfolio
+        self._cache: list[dict] | None = None
+        self._cache_ts: float = 0
+
+    async def update_rankings(self):
+        users = await self.db.get_all_users()
+        entries = []
         for user in users:
-            worth = await self.get_user_net_worth(user['id'])
-            user_worths.append({
-                'user_id': user['id'],
-                'username': user['username'],
-                'worth': worth
-            })
-            
-        # Sort by worth (descending)
-        user_worths.sort(key=lambda x: x['worth'], reverse=True)
-        
-        # Update leaderboard in database
-        for rank, user_data in enumerate(user_worths, 1):
-            database.update_leaderboard_entry(user_data['user_id'], user_data['worth'], rank, config.DB_PATH)
-            
-        # Cache the results
-        self.cache = {
-            'leaderboard': user_worths,
-            'last_updated': time.time()
-        }
-    
-    async def get_leaderboard(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get leaderboard data"""
-        # Try cache first
-        if 'leaderboard' in self.cache:
-            cached_data = self.cache['leaderboard']
-            if time.time() - cached_data['last_updated'] < 300:  # 5 minutes cache
-                return cached_data['leaderboard'][:limit]
-        
-        # Get from database
-        leaderboard_data = database.get_leaderboard_data(config.DB_PATH)
-        
-        # Cache and return
-        self.cache['leaderboard'] = {
-            'leaderboard': leaderboard_data,
-            'last_updated': time.time()
-        }
-        
-        return leaderboard_data[:limit]
-    
-    async def get_user_rank(self, user_id: int) -> Optional[int]:
-        """Get a user's rank in the leaderboard"""
-        # Try cache first
-        if 'user_rank' in self.cache:
-            cached_data = self.cache['user_rank']
-            if time.time() - cached_data['last_updated'] < 300:
-                return cached_data.get(user_id)
-        
-        # Get from database
-        rank = database.get_user_rank(user_id, config.DB_PATH)
-        
-        # Cache the result
-        if 'user_rank' not in self.cache:
-            self.cache['user_rank'] = {}
-        self.cache['user_rank'][user_id] = rank
-        self.cache['user_rank']['last_updated'] = time.time()
-        
-        return rank
-    
-    async def get_user_net_worth(self, user_id: int) -> float:
-        """Get a user's net worth for leaderboard"""
-        # Get user's balance
-        balance = database.get_user_balance(user_id, config.DB_PATH)
-        if balance is None:
-            balance = 0.0
-            
-        # Get portfolio value
-        portfolio = database.get_user_portfolio(user_id, config.DB_PATH)
-        portfolio_value = sum(item['quantity'] * item['current_price'] for item in portfolio)
-        
-        return balance + portfolio_value
-    
-    async def get_top_traders(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get top traders ranked by net worth"""
-        # Get all users and their net worth
-        users = database.get_all_users(config.DB_PATH)
-        
-        user_worths = []
-        for user in users:
-            worth = await self.get_user_net_worth(user['id'])
-            user_worths.append({
-                'user_id': user['id'],
-                'username': user['username'],
-                'worth': worth
-            })
-            
-        # Sort by worth (descending)
-        user_worths.sort(key=lambda x: x['worth'], reverse=True)
-        
-        # Return top traders
-        return user_worths[:limit]
+            uid = user["discord_id"]
+            try:
+                net_worth = await self.portfolio.get_net_worth(uid)
+                profit = net_worth - config.INITIAL_CASH
+                entries.append({
+                    "user_id": uid,
+                    "username": user.get("username") or str(uid),
+                    "net_worth": net_worth,
+                    "profit": profit,
+                })
+            except Exception as e:
+                logger.warning("Failed to calc net worth for %s: %s", uid, e)
+
+        entries.sort(key=lambda x: x["net_worth"], reverse=True)
+
+        for rank, entry in enumerate(entries, 1):
+            entry["rank"] = rank
+            await self.db.update_leaderboard_entry(
+                entry["user_id"], entry["net_worth"], entry["profit"], rank,
+            )
+
+        self._cache = entries
+        self._cache_ts = time.time()
+        logger.info("Leaderboard updated: %d users ranked", len(entries))
+
+    async def get_top(self, limit: int = 10) -> list[dict]:
+        if self._cache and time.time() - self._cache_ts < config.LEADERBOARD_UPDATE_INTERVAL:
+            return self._cache[:limit]
+
+        data = await self.db.get_leaderboard(limit)
+        if data:
+            for entry in data:
+                user = await self.db.get_user(entry["user_id"])
+                entry["username"] = (user.get("username") if user else None) or str(entry["user_id"])
+            return data
+
+        return []
+
+    async def get_rank(self, discord_id: int) -> dict | None:
+        entry = await self.db.get_user_rank(discord_id)
+        if entry:
+            user = await self.db.get_user(discord_id)
+            entry["username"] = (user.get("username") if user else None) or str(discord_id)
+        return entry
